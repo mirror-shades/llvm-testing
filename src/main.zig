@@ -642,9 +642,40 @@ const LLVMGenerator = struct {
         );
         out_type.* = fn_type;
 
-        // Create function declaration - use the exact name from print.zig
+        // Create the function
         const fn_val = LLVMCore.LLVMAddFunction(module, "print_string", fn_type);
-        LLVMCore.LLVMSetLinkage(fn_val, LLVMTypes.LLVMLinkage.LLVMExternalLinkage);
+
+        // Create puts function declaration
+        const puts_type = LLVMCore.LLVMFunctionType(
+            LLVMCore.LLVMInt32TypeInContext(context),
+            &param_types,
+            1,
+            @intFromBool(false),
+        );
+        const puts_fn = LLVMCore.LLVMAddFunction(module, "puts", puts_type);
+        LLVMCore.LLVMSetLinkage(puts_fn, LLVMTypes.LLVMLinkage.LLVMExternalLinkage);
+
+        // Create function body
+        const entry_block = LLVMCore.LLVMAppendBasicBlockInContext(context, fn_val, "entry");
+        const builder = LLVMCore.LLVMCreateBuilderInContext(context);
+        defer LLVMCore.LLVMDisposeBuilder(builder);
+
+        LLVMCore.LLVMPositionBuilderAtEnd(builder, entry_block);
+
+        // Call puts with the input string
+        var args = [_]LLVMTypes.LLVMValueRef{LLVMCore.LLVMGetParam(fn_val, 0)};
+        _ = LLVMCore.LLVMBuildCall2(
+            builder,
+            puts_type,
+            puts_fn,
+            &args,
+            1,
+            "",
+        );
+
+        // Return void
+        _ = LLVMCore.LLVMBuildRetVoid(builder);
+
         return fn_val;
     }
 
@@ -661,9 +692,74 @@ const LLVMGenerator = struct {
         );
         out_type.* = fn_type;
 
-        // Create function declaration - use the exact name from print.zig
+        // Create the function
         const fn_val = LLVMCore.LLVMAddFunction(module, "print_int", fn_type);
-        LLVMCore.LLVMSetLinkage(fn_val, LLVMTypes.LLVMLinkage.LLVMExternalLinkage);
+
+        // Create printf function type (variadic)
+        const i8_type = LLVMCore.LLVMInt8TypeInContext(context);
+        const i8_ptr_type = LLVMCore.LLVMPointerType(i8_type, 0);
+        var printf_param_types = [_]LLVMTypes.LLVMTypeRef{i8_ptr_type};
+        const printf_type = LLVMCore.LLVMFunctionType(
+            LLVMCore.LLVMInt32TypeInContext(context),
+            &printf_param_types,
+            1,
+            @intFromBool(true), // is_variadic = true
+        );
+        const printf_fn = LLVMCore.LLVMAddFunction(module, "printf", printf_type);
+        LLVMCore.LLVMSetLinkage(printf_fn, LLVMTypes.LLVMLinkage.LLVMExternalLinkage);
+
+        // Create function body
+        const entry_block = LLVMCore.LLVMAppendBasicBlockInContext(context, fn_val, "entry");
+        const builder = LLVMCore.LLVMCreateBuilderInContext(context);
+        defer LLVMCore.LLVMDisposeBuilder(builder);
+
+        LLVMCore.LLVMPositionBuilderAtEnd(builder, entry_block);
+
+        // Create format string constant
+        const format_str = LLVMCore.LLVMConstStringInContext(
+            context,
+            "%d\n\x00", // null-terminated format string
+            4,
+            @intFromBool(false),
+        );
+        const format_global = LLVMCore.LLVMAddGlobal(
+            module,
+            LLVMCore.LLVMTypeOf(format_str),
+            "int_format",
+        );
+        LLVMCore.LLVMSetInitializer(format_global, format_str);
+        LLVMCore.LLVMSetGlobalConstant(format_global, @intFromBool(true));
+        LLVMCore.LLVMSetLinkage(format_global, LLVMTypes.LLVMLinkage.LLVMPrivateLinkage);
+
+        // Get pointer to format string
+        const zero = LLVMCore.LLVMConstInt(LLVMCore.LLVMInt32TypeInContext(context), 0, @intFromBool(false));
+        var indices = [_]LLVMTypes.LLVMValueRef{ zero, zero };
+        const format_ptr = LLVMCore.LLVMBuildGEP2(
+            builder,
+            LLVMCore.LLVMTypeOf(format_str),
+            format_global,
+            &indices,
+            2,
+            "format_ptr",
+        );
+
+        // Call printf with format string and integer argument
+        var args = [_]LLVMTypes.LLVMValueRef{
+            format_ptr,
+            LLVMCore.LLVMGetParam(fn_val, 0),
+        };
+        _ = LLVMCore.LLVMBuildCall2(
+            builder,
+            printf_type,
+            printf_fn,
+            &args,
+            2,
+            "",
+        );
+
+        // Return void
+        _ = LLVMCore.LLVMBuildRetVoid(builder);
+
         return fn_val;
     }
 
